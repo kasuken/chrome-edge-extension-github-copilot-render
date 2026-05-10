@@ -4,7 +4,6 @@
   "version": "0.0.1",
   "description": "Enhances the visualization of GitHub Copilot agent, skill, prompt, and instruction files on GitHub",
   "permissions": [
-    "activeTab",
     "storage"
   ],
   "action": {

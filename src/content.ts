@@ -82,7 +82,8 @@ function detectFileType(): CopilotFileInfo | null {
   const segments = path.split('/')
   const fileName = segments[segments.length - 1]?.toLowerCase() ?? ''
 
-  if (fileName.endsWith('.agent.md')) return FILE_TYPES.agent
+  if (fileName.endsWith('.agent.md') || fileName === 'agents.md')
+    return FILE_TYPES.agent
   if (fileName === 'skill.md') return FILE_TYPES.skill
   if (fileName.endsWith('.prompt.md')) return FILE_TYPES.prompt
   if (
@@ -329,6 +330,7 @@ function addSectionStyling(fileInfo: CopilotFileInfo): void {
     const el = heading as HTMLElement
     if (el.dataset.copilotStyled) return
     el.dataset.copilotStyled = 'true'
+    el.dataset.copilotPreviousStyle = el.getAttribute('style') ?? ''
 
     el.style.paddingBottom = '8px'
     el.style.marginTop = '36px'
@@ -665,8 +667,38 @@ function injectGlobalStyles(): void {
   document.head.appendChild(style)
 }
 
-function enhance(): void {
+function restoreEnhancements(): void {
+  document.querySelectorAll('.cpr-wrapper').forEach((el) => el.remove())
+  document.getElementById('cpr-styles')?.remove()
+
+  document.querySelectorAll<HTMLElement>('[data-copilot-hidden]').forEach((el) => {
+    el.style.display = ''
+    delete el.dataset.copilotHidden
+  })
+
+  document.querySelectorAll<HTMLElement>('[data-copilot-styled]').forEach((el) => {
+    const previousStyle = el.dataset.copilotPreviousStyle
+    if (previousStyle) {
+      el.setAttribute('style', previousStyle)
+    } else {
+      el.removeAttribute('style')
+    }
+    delete el.dataset.copilotStyled
+    delete el.dataset.copilotPreviousStyle
+  })
+}
+
+async function isExtensionEnabled(): Promise<boolean> {
+  const data = await chrome.storage.sync.get(['extensionEnabled'])
+  return data.extensionEnabled !== false
+}
+
+async function enhance(): Promise<void> {
   if (!isGitHubFilePage()) return
+  if (!(await isExtensionEnabled())) {
+    restoreEnhancements()
+    return
+  }
 
   const fileInfo = detectFileType()
   if (!fileInfo) return
@@ -683,10 +715,12 @@ function enhance(): void {
 
     tableElement.parentElement?.insertBefore(card, tableElement)
     ;(tableElement as HTMLElement).style.display = 'none'
+    ;(tableElement as HTMLElement).dataset.copilotHidden = 'true'
 
     const nextSibling = tableElement.nextElementSibling
     if (nextSibling?.tagName === 'HR') {
       ;(nextSibling as HTMLElement).style.display = 'none'
+      ;(nextSibling as HTMLElement).dataset.copilotHidden = 'true'
     }
   } else {
     const article = document.querySelector('article.markdown-body')
@@ -709,10 +743,20 @@ function enhance(): void {
   addSectionStyling(fileInfo)
 }
 
-enhance()
+void enhance()
 
 document.addEventListener('turbo:load', () => {
-  enhance()
+  void enhance()
+})
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'sync' || !changes.extensionEnabled) return
+
+  if (changes.extensionEnabled.newValue === false) {
+    restoreEnhancements()
+  } else {
+    void enhance()
+  }
 })
 
 const observer = new MutationObserver(() => {
@@ -721,7 +765,7 @@ const observer = new MutationObserver(() => {
     detectFileType() &&
     !document.querySelector('.cpr-wrapper')
   ) {
-    enhance()
+    void enhance()
   }
 })
 
